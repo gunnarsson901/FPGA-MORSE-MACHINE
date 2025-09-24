@@ -1,14 +1,12 @@
--- lcd_top.vhd
 library ieee;
 use ieee.std_logic_1164.all;
 
 entity lcd_top is
   port (
-    clk       : in  std_logic;
-    reset_n   : in  std_logic;
-    btn       : in  std_logic;
-    rs, rw, e : out std_logic;
-    lcd_data  : out std_logic_vector(7 downto 0)
+    clk      : in  std_logic;
+    reset_n  : in  std_logic;
+    rs, rw, e: out std_logic;
+    lcd_data : out std_logic_vector(7 downto 0)
   );
 end lcd_top;
 
@@ -17,8 +15,8 @@ architecture rtl of lcd_top is
   signal lcd_enable  : std_logic;
   signal lcd_bus     : std_logic_vector(9 downto 0);
 begin
-  u_ctrl: entity work.lcd_controller
-    generic map ( G_CLK_MHZ => 50 )
+  -- LCD Controller instance
+  u1: entity work.lcd_controller
     port map (
       clk        => clk,
       reset_n    => reset_n,
@@ -33,18 +31,15 @@ begin
       lcd_blon   => open
     );
 
-  u_morse: entity work.morse_decoder
-    generic map (
-      G_CLK_HZ  => 50_000_000,
-      G_UNIT_MS => 120            -- justera efter din knapp
-    )
+  -- User logic instance
+  u2: entity work.lcd_user_logic
     port map (
       clk        => clk,
-      reset_n    => reset_n,
-      btn        => btn,
-      busy       => lcd_busy,
+      lcd_busy   => lcd_busy,
       lcd_enable => lcd_enable,
-      lcd_bus    => lcd_bus
+      lcd_bus    => lcd_bus,
+      reset_n    => open,
+      lcd_clk    => open
     );
+
 end rtl;
-	

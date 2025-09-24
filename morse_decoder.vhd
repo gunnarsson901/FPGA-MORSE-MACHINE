@@ -37,9 +37,10 @@ architecture rtl of morse_decoder is
   signal node      : integer range 1 to 63 := 1;
   signal have_elem : std_logic := '0';
 
-  -- output
+  -- output (FIXED - removed out_pend, using internal logic)
   signal out_data : std_logic_vector(7 downto 0) := (others=>'0');
-  signal out_pend : std_logic := '0';
+  signal char_ready : std_logic := '0';
+  signal space_ready : std_logic := '0';
 
   function to_ascii(c : character) return std_logic_vector is
   begin
@@ -143,17 +144,24 @@ begin
     end if;
   end process;
 
-  -- tidmätning och tolkning
+  -- MAIN PROCESS - Combined timing, decoding and output (FIXED)
   process(clk) begin
     if rising_edge(clk) then
       if rst_n='0' then
-        press_ms  <= (others=>'0');
-        gap_ms    <= (others=>'0');
-        node      <= 1;
-        have_elem <= '0';
-        out_pend  <= '0';
-        out_data  <= (others=>'0');
+        press_ms    <= (others=>'0');
+        gap_ms      <= (others=>'0');
+        node        <= 1;
+        have_elem   <= '0';
+        char_ready  <= '0';
+        space_ready <= '0';
+        out_data    <= (others=>'0');
+        ch_out      <= (others=>'0');
+        ch_stb      <= '0';
       else
+        -- Default outputs
+        ch_stb <= '0';
+        
+        -- Timing
         if tick_1ms='1' then
           if btn_i='1' then
             press_ms <= press_ms + 1;
@@ -164,51 +172,48 @@ begin
           end if;
         end if;
 
-        -- release → punkt/streck
+        -- Release button → punkt/streck
         if (btn_i='0' and btn_db_d='1') then
           if to_integer(press_ms) > 0 then
             have_elem <= '1';
             if to_integer(press_ms) < (2*TU) then
-              node <= sat63(2*node);        -- .
+              node <= sat63(2*node);        -- dot
             else
-              node <= sat63(2*node + 1);    -- -
+              node <= sat63(2*node + 1);    -- dash
             end if;
           end if;
         end if;
 
-        -- gap → avsluta bokstav/ord
-        if tick_1ms='1' and btn_i='0' and out_pend='0' then
+        -- Gap handling → character or space
+        if tick_1ms='1' and btn_i='0' then
           if have_elem='1' and to_integer(gap_ms) >= GAP_C then
-            out_data  <= node_to_char(node);
-            out_pend  <= '1';
-            node      <= 1;
-            have_elem <= '0';
-            gap_ms    <= (others=>'0');
+            char_ready <= '1';
+            out_data <= node_to_char(node);
           elsif have_elem='0' and to_integer(gap_ms) >= GAP_W then
-            out_data  <= to_ascii(' ');
-            out_pend  <= '1';
-            gap_ms    <= (others=>'0');
+            space_ready <= '1';
+            out_data <= to_ascii(' ');
           end if;
         end if;
+        
+        -- Output to LCD when ready and LCD not busy
+        if lcd_busy='0' then
+          if char_ready='1' then
+            ch_out <= out_data;
+            ch_stb <= '1';
+            char_ready <= '0';
+            node <= 1;
+            have_elem <= '0';
+            gap_ms <= (others=>'0');
+          elsif space_ready='1' then
+            ch_out <= out_data;
+            ch_stb <= '1';
+            space_ready <= '0';
+            gap_ms <= (others=>'0');
+          end if;
+        end if;
+        
       end if;
     end if;
   end process;
 
-  -- utsignal mot LCD
-  process(clk) begin
-    if rising_edge(clk) then
-      if rst_n='0' then
-        ch_out <= (others=>'0');
-        ch_stb <= '0';
-        out_pend <= '0';
-      else
-        ch_stb <= '0';
-        if out_pend='1' and lcd_busy='0' then
-          ch_out  <= out_data;
-          ch_stb  <= '1';
-          out_pend <= '0';
-        end if;
-      end if;
-    end if;
-  end process;
 end architecture rtl;
