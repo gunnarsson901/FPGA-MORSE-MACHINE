@@ -5,211 +5,162 @@ use ieee.numeric_std.all;
 entity morse_decoder is
   generic(
     CLK_HZ          : positive := 50_000_000;
-    TU_MS           : positive := 120;   -- tidsenhet för Morse
-    DB_MS           : positive := 10;    -- debounce
-    BTN_ACTIVE_HIGH : boolean  := true
+    TU_MS           : positive := 120;
+    DB_MS           : positive := 10;
+    BTN_ACTIVE_HIGH : boolean  := false
   );
   port(
     clk       : in  std_logic;
     rst_n     : in  std_logic;
     btn_raw   : in  std_logic;
-    lcd_busy  : in  std_logic;  -- tie '0' om du saknar busy
+    lcd_busy  : in  std_logic;
     ch_out    : out std_logic_vector(7 downto 0);
     ch_stb    : out std_logic
   );
 end entity morse_decoder;
 
 architecture rtl of morse_decoder is
-  -- 1 ms tick
-  constant MS_DIV : natural := CLK_HZ/1000;
-  signal ms_cnt   : unsigned(31 downto 0) := (others=>'0');
-  signal tick_1ms : std_logic := '0';
-
-  -- sync + debounce
-  signal s1, s2, btn_db, btn_db_d, btn_i : std_logic := '0';
-  signal db_cnt : unsigned(15 downto 0) := (others=>'0');
-
-  -- timing
-  signal press_ms : unsigned(15 downto 0) := (others=>'0');
-  signal gap_ms   : unsigned(15 downto 0) := (others=>'0');
-
-  -- morse-träd
-  signal node      : integer range 1 to 63 := 1;
-  signal have_elem : std_logic := '0';
-
-  -- output (FIXED - removed out_pend, using internal logic)
-  signal out_data : std_logic_vector(7 downto 0) := (others=>'0');
-  signal char_ready : std_logic := '0';
-  signal space_ready : std_logic := '0';
-
-  function to_ascii(c : character) return std_logic_vector is
-  begin
-    return std_logic_vector(to_unsigned(character'pos(c), 8));
-  end;
-
-  function node_to_char(n : integer) return std_logic_vector is
-  begin
-    case n is
-      when 2  => return to_ascii('E');
-      when 3  => return to_ascii('T');
-      when 4  => return to_ascii('I');
-      when 5  => return to_ascii('A');
-      when 6  => return to_ascii('N');
-      when 7  => return to_ascii('M');
-      when 8  => return to_ascii('S');
-      when 9  => return to_ascii('U');
-      when 10 => return to_ascii('R');
-      when 11 => return to_ascii('W');
-      when 12 => return to_ascii('D');
-      when 13 => return to_ascii('K');
-      when 14 => return to_ascii('G');
-      when 15 => return to_ascii('O');
-      when 16 => return to_ascii('H');
-      when 17 => return to_ascii('V');
-      when 18 => return to_ascii('F');
-      when 20 => return to_ascii('L');
-      when 22 => return to_ascii('P');
-      when 23 => return to_ascii('J');
-      when 24 => return to_ascii('B');
-      when 25 => return to_ascii('X');
-      when 26 => return to_ascii('C');
-      when 27 => return to_ascii('Y');
-      when 28 => return to_ascii('Z');
-      when 29 => return to_ascii('Q');
-      when others => return to_ascii('?');
-    end case;
-  end;
-
-  function sat63(x : integer) return integer is
-  begin
-    if x < 1 then return 1; elsif x > 63 then return 63; else return x; end if;
-  end;
-
-  constant TU    : natural := TU_MS;
-  constant GAP_C : natural := 3*TU_MS;  -- bokstavsgap
-  constant GAP_W : natural := 7*TU_MS;  -- ordgap
+  -- Very simple button debouncing - just 3 flip-flops
+  signal btn1, btn2, btn3 : std_logic := '0';
+  signal btn_clean, btn_prev : std_logic := '0';
+  
+  -- Super simple timing - just count clock cycles directly
+  signal press_count : unsigned(31 downto 0) := (others => '0');
+  signal gap_count : unsigned(31 downto 0) := (others => '0');
+  signal pressing : std_logic := '0';
+  
+  -- Morse pattern - keep it really simple
+  signal dots_dashes : std_logic_vector(7 downto 0) := (others => '0');
+  signal num_elements : integer range 0 to 8 := 0;
+  
+  -- Very generous timing constants (clock cycles at 50MHz)
+  constant SHORT_THRESHOLD : natural := 10_000_000;  -- 0.2 seconds - very short!
+  constant CHAR_TIMEOUT    : natural := 50_000_000;  -- 1.0 seconds - quick timeout
+  constant SPACE_TIMEOUT   : natural := 100_000_000; -- 2.0 seconds
+  
+  -- Output control
+  signal output_char : std_logic_vector(7 downto 0) := (others => '0');
+  signal send_char : std_logic := '0';
+  
 begin
-  -- 1 ms tick
-  process(clk) begin
+
+  -- Ultra-simple button sync (no fancy debouncing)
+  process(clk)
+  begin
     if rising_edge(clk) then
-      if rst_n='0' then
-        ms_cnt   <= (others=>'0');
-        tick_1ms <= '0';
-      else
-        if ms_cnt = to_unsigned(MS_DIV-1, ms_cnt'length) then
-          ms_cnt   <= (others=>'0');
-          tick_1ms <= '1';
-        else
-          ms_cnt   <= ms_cnt + 1;
-          tick_1ms <= '0';
-        end if;
-      end if;
+      btn1 <= not btn_raw;  -- Invert for active-low
+      btn2 <= btn1;
+      btn3 <= btn2;
+      btn_clean <= btn3;
     end if;
   end process;
-
-  -- sync + debounce
-  process(clk) begin
+  
+  -- Main process - keep everything in one place
+  process(clk)
+  begin
     if rising_edge(clk) then
-      if rst_n='0' then
-        s1 <= '0'; s2 <= '0'; btn_db <= '0'; db_cnt <= (others=>'0');
-      else
-        s1 <= btn_raw;
-        s2 <= s1;
-        if tick_1ms='1' then
-          if s2 = btn_db then
-            db_cnt <= (others=>'0');
-          else
-            if db_cnt < to_unsigned(DB_MS, db_cnt'length) then
-              db_cnt <= db_cnt + 1;
-            else
-              btn_db <= s2;
-              db_cnt <= (others=>'0');
-            end if;
-          end if;
-        end if;
-      end if;
-    end if;
-  end process;
-
-  -- polaritet + kanter
-  btn_i <= btn_db when BTN_ACTIVE_HIGH else not btn_db;
-
-  process(clk) begin
-    if rising_edge(clk) then
-      if rst_n='0' then
-        btn_db_d <= '0';
-      else
-        btn_db_d <= btn_i;
-      end if;
-    end if;
-  end process;
-
-  -- MAIN PROCESS - Combined timing, decoding and output (FIXED)
-  process(clk) begin
-    if rising_edge(clk) then
-      if rst_n='0' then
-        press_ms    <= (others=>'0');
-        gap_ms      <= (others=>'0');
-        node        <= 1;
-        have_elem   <= '0';
-        char_ready  <= '0';
-        space_ready <= '0';
-        out_data    <= (others=>'0');
-        ch_out      <= (others=>'0');
-        ch_stb      <= '0';
+      if rst_n = '0' then
+        btn_prev <= '0';
+        press_count <= (others => '0');
+        gap_count <= (others => '0');
+        pressing <= '0';
+        dots_dashes <= (others => '0');
+        num_elements <= 0;
+        output_char <= (others => '0');
+        send_char <= '0';
+        ch_out <= (others => '0');
+        ch_stb <= '0';
       else
         -- Default outputs
+        send_char <= '0';
         ch_stb <= '0';
+        btn_prev <= btn_clean;
         
-        -- Timing
-        if tick_1ms='1' then
-          if btn_i='1' then
-            press_ms <= press_ms + 1;
-            gap_ms   <= (others=>'0');
-          else
-            gap_ms   <= gap_ms + 1;
-            press_ms <= (others=>'0');
-          end if;
+        -- Button press detected
+        if btn_clean = '1' and btn_prev = '0' then
+          pressing <= '1';
+          press_count <= (others => '0');
+          gap_count <= (others => '0');
         end if;
-
-        -- Release button → punkt/streck
-        if (btn_i='0' and btn_db_d='1') then
-          if to_integer(press_ms) > 0 then
-            have_elem <= '1';
-            if to_integer(press_ms) < (2*TU) then
-              node <= sat63(2*node);        -- dot
+        
+        -- Button release detected
+        if btn_clean = '0' and btn_prev = '1' then
+          pressing <= '0';
+          
+          -- Add dot or dash based on press duration
+          if num_elements < 8 then
+            if press_count < SHORT_THRESHOLD then
+              dots_dashes(num_elements) <= '0';  -- Dot
             else
-              node <= sat63(2*node + 1);    -- dash
+              dots_dashes(num_elements) <= '1';  -- Dash
             end if;
+            num_elements <= num_elements + 1;
           end if;
-        end if;
-
-        -- Gap handling → character or space
-        if tick_1ms='1' and btn_i='0' then
-          if have_elem='1' and to_integer(gap_ms) >= GAP_C then
-            char_ready <= '1';
-            out_data <= node_to_char(node);
-          elsif have_elem='0' and to_integer(gap_ms) >= GAP_W then
-            space_ready <= '1';
-            out_data <= to_ascii(' ');
-          end if;
+          
+          press_count <= (others => '0');
+          gap_count <= (others => '0');
         end if;
         
-        -- Output to LCD when ready and LCD not busy
-        if lcd_busy='0' then
-          if char_ready='1' then
-            ch_out <= out_data;
-            ch_stb <= '1';
-            char_ready <= '0';
-            node <= 1;
-            have_elem <= '0';
-            gap_ms <= (others=>'0');
-          elsif space_ready='1' then
-            ch_out <= out_data;
-            ch_stb <= '1';
-            space_ready <= '0';
-            gap_ms <= (others=>'0');
-          end if;
+        -- Count time
+        if pressing = '1' then
+          press_count <= press_count + 1;
+        else
+          gap_count <= gap_count + 1;
+        end if;
+        
+        -- Character timeout - decode pattern
+        if pressing = '0' and num_elements > 0 and gap_count >= CHAR_TIMEOUT then
+          send_char <= '1';
+          gap_count <= (others => '0');
+          
+          -- Simple decode - just handle most common patterns
+          case num_elements is
+            when 1 =>
+              if dots_dashes(0) = '0' then
+                output_char <= x"45";  -- E
+              else
+                output_char <= x"54";  -- T
+              end if;
+            when 2 =>
+              case dots_dashes(1 downto 0) is
+                when "00" => output_char <= x"49";  -- I
+                when "01" => output_char <= x"41";  -- A
+                when "10" => output_char <= x"4E";  -- N
+                when "11" => output_char <= x"4D";  -- M
+                when others => output_char <= x"3F";  -- ?
+              end case;
+            when 3 =>
+              case dots_dashes(2 downto 0) is
+                when "000" => output_char <= x"53";  -- S
+                when "001" => output_char <= x"55";  -- U
+                when "010" => output_char <= x"52";  -- R
+                when "011" => output_char <= x"57";  -- W
+                when "100" => output_char <= x"44";  -- D
+                when "101" => output_char <= x"4B";  -- K
+                when "110" => output_char <= x"47";  -- G
+                when "111" => output_char <= x"4F";  -- O
+                when others => output_char <= x"3F";  -- ?
+              end case;
+            when others =>
+              output_char <= x"3F";  -- ? for longer patterns
+          end case;
+          
+          -- Reset pattern
+          dots_dashes <= (others => '0');
+          num_elements <= 0;
+        end if;
+        
+        -- Send space for very long gaps
+        if pressing = '0' and num_elements = 0 and gap_count >= SPACE_TIMEOUT then
+          send_char <= '1';
+          output_char <= x"20";  -- Space
+          gap_count <= (others => '0');
+        end if;
+        
+        -- Output to LCD when ready
+        if send_char = '1' and lcd_busy = '0' then
+          ch_out <= output_char;
+          ch_stb <= '1';
         end if;
         
       end if;
@@ -217,3 +168,18 @@ begin
   end process;
 
 end architecture rtl;
+
+-- HARDWARE FIXES TO TRY:
+-- 1. Remove 220Ω resistor completely (use internal pull-up)
+-- 2. Or replace with 4.7kΩ resistor
+-- 
+-- NEW TIMING (Very Forgiving):
+-- - Dot: < 0.2 seconds (very short press)
+-- - Dash: ≥ 0.2 seconds (any longer press)
+-- - Character end: 1.0 second pause
+-- - Space: 2.0 second pause
+--
+-- TEST PATTERNS:
+-- E: Very quick tap, wait 1+ seconds
+-- T: Hold for 0.5+ seconds, wait 1+ seconds  
+-- A: Quick tap, pause, long press, wait 1+ seconds
