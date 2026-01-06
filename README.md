@@ -9,20 +9,53 @@
     /     \    /  _  \ \_   ___ \ /   |   \|   |\      \ \_   _____/    
    /  \ /  \  /  /_\  \/    \  \//    ~    \   |/   |   \ |    __)_     
   /    Y    \/    |    \     \___\    Y    /   /    |    \|        \    
-  \____|__  /\____|__  /\______  /\___|_  /|___\____|__  /_______  /    
+  \____|__  /\____|__  /\______  /\___|_  /|__\____|__  /_______  /    
           \/         \/        \/       \/             \/        \/     
 ```
 
-# intro
-This is a FPGA projekt that simply turns button presses into ASCII and
-displays it onto a 18x2 LCD
+# Morse Code FPGA Decoder
 
-# To recreate this projekt you'll need:
-- FPGA, I used the terasic DE0-CV CYCLONE board.
-- LCD display, JHD 162A or HD44780. 
-- Push button.
-- QUARTUS 18.1
+This FPGA project decodes Morse code input from a button and displays the text on a 16x2 LCD. It features support for letters, numbers, and special symbols, along with a passive buzzer for audio feedback.
 
+## Features
+- **Morse Decoder:** Detects dots (short press) and dashes (long press) with automatic character spacing.
+- **Display:** 16x2 LCD support (2-line mode).
+- **Controls:**
+  - **Morse Key:** Input Morse code.
+  - **Clear:** Clears the display.
+  - **Space:** Adds a space character.
+  - **Enter:** Moves cursor to the next line (toggles between Line 1 and Line 2).
+- **Feedback:**
+  - **Buzzer:** 1kHz tone synchronized with button presses.
+  - **LEDs:** Visual debugging for button state, decoding status, and current line.
+
+## Hardware Requirements
+- **FPGA Board:** Terasic DE0-CV (Cyclone V) or compatible.
+- **Display:** JHD 162A or HD44780 compatible LCD.
+- **Input:** Push buttons (Active Low).
+- **Audio:** Passive buzzer.
+- **Software:** Quartus Prime 18.1.
+
+## Simulation with ModelSim
+
+To simulate the design and see the decoded characters in the waveform viewer:
+
+1.  **Open ModelSim-Altera.**
+2.  **Create a New Project** and add the following files:
+    - `lcd_controller.vhd`
+    - `lcd_top.vhd`
+    - `tb_lcd_morse.vhd`
+3.  **Compile All** files. Ensure there are no errors.
+4.  **Start Simulation:**
+    - Go to `Simulate` -> `Start Simulation`.
+    - Expand the `work` library and select `tb_lcd_morse`.
+    - Click OK.
+5.  **Add Waves:**
+    - Right-click on `uut` (Unit Under Test) in the Objects window and select `Add to` -> `Wave`.
+    - **Tip:** To see the ASCII characters clearly, find the signal `lcd_char_view` in the testbench signals and add it to the wave. This signal converts the LCD data bus into readable characters (e.g., 'A', 'B') when valid data is written.
+6.  **Run Simulation:**
+    - Type `run 2 sec` in the transcript window (or press the Run All button).
+7.  **Analyze:** Check the `lcd_char_view` signal in the waveform to verify correct decoding. You can also view the console output ("Transcript") for text reports of LCD writes.
 
 # Morse-kodtabell
 
@@ -55,7 +88,7 @@ displays it onto a 18x2 LCD
 ## Specialtecken & Signaler
 | Tecken        | Morse      | Tecken         | Morse        |
 |---------------|------------|----------------|--------------|
-| Punkt (.)      | .-.-.-     | Apostrof (')   | .----.        |
+| Punkt (.)      | .-.-.-     | Apostrof (")   | .----.        |
 | Komma (,)      | --..--     | Kolon (:)      | ---...        |
 | Parentes (     | -.--.      | Parentes )     | -.--.-        |
 | Bindestreck (-)| -....-     | Citat (")      | .-..-.        |

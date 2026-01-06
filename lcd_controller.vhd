@@ -59,7 +59,7 @@ begin
           clk_count <= clk_count + 1;
 
           if clk_count < (10 * G_CLK_MHZ) then          -- Function Set
-            lcd_data <= "00110100";                     -- 8-bit, 1-line, display on
+            lcd_data <= "00111000";                     -- 8-bit, 2-line, 5x8 dots
             e        <= '1';
           elsif clk_count < (60 * G_CLK_MHZ) then       -- 50 µs
             lcd_data <= (others => '0');
