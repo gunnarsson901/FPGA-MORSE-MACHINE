@@ -36,6 +36,13 @@ This FPGA project decodes Morse code input from a button and displays the text o
 - **Audio:** Passive buzzer.
 - **Software:** Quartus Prime 18.1.
 
+## Schematic & Connections
+![Connection Diagram](connection.png)
+
+## Documentation & Datasheets
+- [DE0-CV User Manual](https://www2.pcs.usp.br/~labdig/material/DE0_CV_User_Manual.pdf)
+- [JHD162A LCD Datasheet](https://www.rhydolabz.com/documents/display/JHD162A.pdf)
+
 ## Simulation with ModelSim
 
 To simulate the design and see the decoded characters in the waveform viewer:
