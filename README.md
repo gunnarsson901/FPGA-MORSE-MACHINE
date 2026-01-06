@@ -57,12 +57,16 @@ To simulate the design and see the decoded characters in the waveform viewer:
     - Go to `Simulate` -> `Start Simulation`.
     - Expand the `work` library and select `tb_lcd_morse`.
     - Click OK.
-5.  **Add Waves:**
-    - Right-click on `uut` (Unit Under Test) in the Objects window and select `Add to` -> `Wave`.
-    - **Tip:** To see the ASCII characters clearly, find the signal `lcd_char_view` in the testbench signals and add it to the wave. This signal converts the LCD data bus into readable characters (e.g., 'A', 'B') when valid data is written.
+5.  **Add Waves (CRITICAL STEP):**
+    - In the **"sim"** or **"Structure"** window (top left), click directly on the name **`tb_lcd_morse`**.
+    - Now look at the **"Objects"** window (middle pane). You will see a signal named **`lcd_char_view`**.
+    - Right-click `lcd_char_view` and select **Add to -> Wave -> Selected Signals**.
+    - You can also add other signals from `uut` if you want to see the hardware internal states.
 6.  **Run Simulation:**
     - Type `run 2 sec` in the transcript window (or press the Run All button).
-7.  **Analyze:** Check the `lcd_char_view` signal in the waveform to verify correct decoding. You can also view the console output ("Transcript") for text reports of LCD writes.
+7.  **Analyze:**
+    - In the Wave window, look for `lcd_char_view`. It will show readable characters like 'A', 'B', 'C' as they are sent to the LCD.
+    - Check the console output ("Transcript") for text reports like `report "LCD WRITE: 'A'"` for real-time logging.
 
 # Morse-kodtabell
 
